@@ -36,6 +36,7 @@ func (s Status) String() string {
 type status struct {
 	status Status
 	output []byte
+	delta  int
 	err    error
 }
 
@@ -63,11 +64,19 @@ type Step struct {
 	Yay       *Packages  `yaml:"yay,omitempty"`
 	Pacman    *Packages  `yaml:"pacman,omitempty"`
 	Command   *Command   `yaml:"command,omitempty"`
-	Makepkg   *Makepkg   `yaml:"makepkg"`
-	Git       *Git       `yaml:"git"`
-	Systemctl *Systemctl `yaml:"systemctl"`
+	Makepkg   *Makepkg   `yaml:"makepkg,omitempty"`
+	Git       *Git       `yaml:"git,omitempty"`
+	Systemctl *Systemctl `yaml:"systemctl,omitempty"`
+	File      *File      `yaml:"file,omitempty"`
 
 	playbook *Playbook
+}
+
+type File struct {
+	Src string
+	Path string
+	State string
+	Force bool
 }
 
 type Systemctl struct {
@@ -107,6 +116,7 @@ func loadQuark(playbook Playbook, filepath, name string) (Quark, error) {
 		return quark, err
 	}
 
+	playbook.Variables.(map[string]interface{})["role_path"] = path.Join(filepath, "quarks", name, "files")
 	b = compileTemplate(string(b), playbook.Variables)
 
 	if err = yaml.Unmarshal(b, &quark.Steps); err != nil {
@@ -140,12 +150,12 @@ func main() {
 			step.playbook = &p
 			fmt.Printf("%s: %s\n", q.Name, step.Name)
 			if step.Yay != nil {
-				step.updatePacman()
-				step.installYayPackages(*step.Yay...)
+				// step.updatePacman()
+				fmt.Println(step.installYayPackages(*step.Yay...))
 			}
 			if step.Pacman != nil {
-				step.updatePacman()
-				step.installPacmanPackages(*step.Pacman...)
+				// step.updatePacman()
+				fmt.Println(step.installPacmanPackages(*step.Pacman...))
 			}
 			if step.User != nil {
 				user := *step.User
@@ -197,6 +207,16 @@ func main() {
 				b, err := cmd.CombinedOutput()
 				_ = b
 				_ = err
+			}
+			if step.File != nil {
+				file := *step.File
+				switch file.State {
+				case "link":
+					fmt.Println(os.Symlink(file.Src, file.Path))
+				default:
+					panic("unimplemented")
+				}
+
 			}
 		}
 	}

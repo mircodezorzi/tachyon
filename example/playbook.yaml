@@ -1,8 +1,10 @@
 quarks:
-  - user
-  - base
-  - docker
-  - yay
+  # - user
+  # - base
+  # - docker
+  # - yay
+  # - neovim
+  - slack
 
 become_user: mirco
 

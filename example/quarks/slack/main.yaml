@@ -1,0 +1,4 @@
+- name: install slack
+  become: true
+  yay:
+    - slack-desktop
