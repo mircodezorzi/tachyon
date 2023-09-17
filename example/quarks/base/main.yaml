@@ -1,0 +1,13 @@
+- name: instal base packages
+  pacman:
+  - base-devel
+  - man-db
+  - man-pages
+  - pacman-contrib
+  - tmux
+  - git
+  - coreutils
+  - moreutils
+  - dateutils
+  - jq
+  - fzf

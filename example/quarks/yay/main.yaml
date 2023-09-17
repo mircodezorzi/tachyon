@@ -1,0 +1,16 @@
+- name: "install dependecies"
+  become: true
+  pacman:
+    - git
+    - base-devel
+
+- name: "fetch yay"
+  become: true
+  git:
+    repo: https://aur.archlinux.org/yay-bin.git
+    dest: /tmp/yay
+
+- name: "install yay"
+  become: true
+  makepkg:
+    cwd: /tmp/yay

@@ -1,0 +1,16 @@
+quarks:
+  - user
+  - base
+  - docker
+  - yay
+
+become_user: mirco
+
+variables:
+  user:
+    name: mirco
+    home: /home/mirco
+    shell: /usr/bin/zsh
+    groups:
+      - mirco
+      - wheel
