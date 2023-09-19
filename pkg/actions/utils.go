@@ -1,4 +1,4 @@
-package main
+package actions
 
 import (
 	"os/exec"
@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-func asUser(name string, cmd *exec.Cmd) *exec.Cmd {
+func AsUser(name string, cmd *exec.Cmd) *exec.Cmd {
 	u, _ := user.Lookup(name)
 	uid, _ := strconv.Atoi(u.Uid)
 	gid, _ := strconv.Atoi(u.Gid)

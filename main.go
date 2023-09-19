@@ -3,90 +3,35 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
-	"strings"
+	"plugin"
+	// "strings"
 	"text/template"
 
+	"github.com/mircodezorzi/tachyon/pkg/playbook"
 	"gopkg.in/yaml.v3"
+
+	"github.com/mircodezorzi/tachyon/modules"
+	"github.com/mircodezorzi/tachyon/pkg/actions"
 )
-
-type Status int
-
-const (
-	Ok      Status = 0
-	Changed Status = 1
-	Fail    Status = 2
-)
-
-func (s Status) String() string {
-	switch s {
-	case Ok:
-		return "ok"
-	case Changed:
-		return "changed"
-	case Fail:
-		return "fail"
-	}
-	return "unimplemented"
-}
-
-type status struct {
-	status Status
-	output []byte
-	delta  int
-	err    error
-}
-
-func (s status) String() string {
-	switch s.status {
-	case Ok, Changed:
-		return s.status.String()
-	case Fail:
-		return s.status.String() + ": " + string(s.output)
-	}
-	return "unimplemented"
-}
 
 type Quark struct {
 	Name  string
-	Steps []Step
+	Steps []S
 }
 
 type Packages []string
 
-type Step struct {
-	Name      string     `yaml:"name"`
-	Become    *bool      `yaml:"become,omitempty"`
-	User      *User      `yaml:"user,omitempty"`
-	Yay       *Packages  `yaml:"yay,omitempty"`
-	Pacman    *Packages  `yaml:"pacman,omitempty"`
-	Command   *Command   `yaml:"command,omitempty"`
-	Makepkg   *Makepkg   `yaml:"makepkg,omitempty"`
-	Git       *Git       `yaml:"git,omitempty"`
-	Systemctl *Systemctl `yaml:"systemctl,omitempty"`
-	File      *File      `yaml:"file,omitempty"`
-
-	playbook *Playbook
-}
+type S map[string]interface{}
 
 type File struct {
-	Src string
-	Path string
+	Src   string
+	Path  string
 	State string
 	Force bool
-}
-
-type Systemctl struct {
-	Service string
-	Status  string
-}
-
-type Git struct {
-	Repo string
-	Dest string
 }
 
 type Makepkg struct {
@@ -108,7 +53,7 @@ func compileTemplate(a string, b interface{}) []byte {
 	return buf.Bytes()
 }
 
-func loadQuark(playbook Playbook, filepath, name string) (Quark, error) {
+func loadQuark(playbook playbook.Playbook, filepath, name string) (Quark, error) {
 	var quark Quark
 
 	b, err := os.ReadFile(path.Join(filepath, "quarks", name, "main.yaml"))
@@ -128,9 +73,40 @@ func loadQuark(playbook Playbook, filepath, name string) (Quark, error) {
 	return quark, nil
 }
 
+func registerAction(name string, action actions.Action) error {
+	if _, ok := supportedActions[name]; ok {
+		return errors.New("action already registered")
+	}
+	supportedActions[name] = action
+	return nil
+}
+
+var supportedActions = map[string]actions.Action{}
+
+func load(name string) actions.Action {
+	p, err := plugin.Open(path.Join("plugins", name, name))
+	if err != nil {
+		panic(err)
+	}
+
+	a, err := p.Lookup("Action")
+	if err != nil {
+		panic(err)
+	}
+
+	return a.(actions.Action)
+}
+
 func main() {
+	registerAction("git", &modules.Git{})
+	registerAction("systemctl", &modules.Systemctl{})
+	registerAction("yay", &modules.Yay{})
+	registerAction("pacman", &modules.Pacman{})
+
+	// registerAction("echo", load("echo"))
+
 	basepath := os.Args[1]
-	p, err := loadPlaybook(basepath)
+	p, err := playbook.LoadPlaybook(basepath)
 	if err != nil {
 		panic(err)
 	}
@@ -138,7 +114,7 @@ func main() {
 	fmt.Print("become password: ")
 	reader := bufio.NewReader(os.Stdin)
 	line, _, err := reader.ReadLine()
-	p.becomePassword = string(line)
+	p.BecomePassword = string(line)
 
 	for _, quark := range p.Quarks {
 		q, err := loadQuark(p, basepath, quark)
@@ -146,78 +122,73 @@ func main() {
 			panic(err)
 		}
 
-		for _, step := range q.Steps {
-			step.playbook = &p
-			fmt.Printf("%s: %s\n", q.Name, step.Name)
-			if step.Yay != nil {
-				// step.updatePacman()
-				fmt.Println(step.installYayPackages(*step.Yay...))
+		for _, s := range q.Steps {
+			var action actions.Action
+			var args interface{}
+			name, ok := s["name"].(string)
+			if !ok {
 			}
-			if step.Pacman != nil {
-				// step.updatePacman()
-				fmt.Println(step.installPacmanPackages(*step.Pacman...))
-			}
-			if step.User != nil {
-				user := *step.User
-				step.createUser(user.Name)
-				step.userHome(user.Name, user.Home)
-				step.userShell(user.Name, user.Shell)
-				step.userGroups(user.Name, user.Groups...)
-			}
-			if step.Command != nil {
-				command := *step.Command
-				cs := strings.Split(command.Cmd, " ")
-				cmd := exec.Command(cs[0], cs[1:]...)
-				cmd.Dir = command.Cwd
-				if step.Become != nil {
-					cmd = asUser(step.playbook.BecomeUser, cmd)
+			become, ok := s["become"].(bool)
+			for k, v := range s {
+				a, ok := supportedActions[k]
+				if !ok {
+					continue
 				}
-				b, err := cmd.CombinedOutput()
-				_ = b
-				_ = err
+				action = a
+				args = v
 			}
-			if step.Makepkg != nil {
-				mkpkg := *step.Makepkg
-				cmd := exec.Command("makepkg", "-si", "--noconfirm")
-				cmd.Env = []string{"PACMAN=pacman -S"}
-				cmd.Stdin = strings.NewReader(step.playbook.becomePassword)
-				cmd.Dir = mkpkg.Cwd
-				if step.Become != nil {
-					cmd = asUser(step.playbook.BecomeUser, cmd)
-				} else {
-					panic("makepkg must become")
-				}
-				b, err := cmd.CombinedOutput()
-				_ = b
-				_ = err
+			if action == nil {
+				continue
 			}
-			if step.Git != nil {
-				git := *step.Git
-				cmd := exec.Command("git", "clone", git.Repo, git.Dest)
-				if step.Become != nil {
-					cmd = asUser(step.playbook.BecomeUser, cmd)
-				}
-				b, err := cmd.CombinedOutput()
-				_ = b
-				_ = err
+			step := actions.Step{
+				Name:       name,
+				Become:     become,
+				BecomeUser: "root",
+				Action:     action,
+				Args:       args,
+				Playbook:   &p,
 			}
-			if step.Systemctl != nil {
-				systemctl := *step.Systemctl
-				cmd := exec.Command("systemctl", systemctl.Status, systemctl.Service)
-				b, err := cmd.CombinedOutput()
-				_ = b
-				_ = err
-			}
-			if step.File != nil {
-				file := *step.File
-				switch file.State {
-				case "link":
-					fmt.Println(os.Symlink(file.Src, file.Path))
-				default:
-					panic("unimplemented")
-				}
 
-			}
+			fmt.Printf("%s: %s\n", q.Name, step.Name)
+			step.Action.Do(step, args)
+			/*
+				if step.Command != nil {
+					command := *step.Command
+					cs := strings.Split(command.Cmd, " ")
+					cmd := exec.Command(cs[0], cs[1:]...)
+					cmd.Dir = command.Cwd
+					if step.Become != nil {
+						cmd = asUser(step.playbook.BecomeUser, cmd)
+					}
+					b, err := cmd.CombinedOutput()
+					_ = b
+					_ = err
+				}
+				if step.Makepkg != nil {
+					mkpkg := *step.Makepkg
+					cmd := exec.Command("makepkg", "-si", "--noconfirm")
+					cmd.Env = []string{"PACMAN=pacman -S"}
+					cmd.Stdin = strings.NewReader(step.playbook.becomePassword)
+					cmd.Dir = mkpkg.Cwd
+					if step.Become != nil {
+						cmd = asUser(step.playbook.BecomeUser, cmd)
+					} else {
+						panic("makepkg must become")
+					}
+					b, err := cmd.CombinedOutput()
+					_ = b
+					_ = err
+				}
+				if step.File != nil {
+					file := *step.File
+					switch file.State {
+					case "link":
+						fmt.Println(os.Symlink(file.Src, file.Path))
+					default:
+						panic("unimplemented")
+					}
+				}
+			*/
 		}
 	}
 }

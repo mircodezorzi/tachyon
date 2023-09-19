@@ -1,4 +1,4 @@
-module github.com/mircodezorzi/installer
+module github.com/mircodezorzi/tachyon
 
 go 1.21.0
 

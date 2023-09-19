@@ -1,4 +1,5 @@
-- name: instal base packages
+- name: install base packages
+  become: true
   pacman:
   - base-devel
   - man-db

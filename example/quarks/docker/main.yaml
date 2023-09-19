@@ -1,13 +1,16 @@
 - name: install docker
+  become: true
   pacman:
     - docker
 
 - name: enable docker
+  become: true
   systemctl:
     service: docker
     status: enable
 
 - name: add user to group
+  become: true
   user:
     name: "{{ .user.name }}"
     groups:

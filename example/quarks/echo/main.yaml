@@ -1,0 +1,2 @@
+- name: use plugin echo
+  echo: Hello, World!

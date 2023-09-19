@@ -1,4 +1,4 @@
-package main
+package playbook
 
 import (
 	"os"
@@ -13,10 +13,10 @@ type Playbook struct {
 
 	BecomeUser string `yaml:"become_user"`
 
-	becomePassword string
+	BecomePassword string `yaml:"-"`
 }
 
-func loadPlaybook(filepath string) (Playbook, error) {
+func LoadPlaybook(filepath string) (Playbook, error) {
 	var playbook Playbook
 
 	b, err := os.ReadFile(path.Join(filepath, "playbook.yaml"))
